@@ -1,218 +1,220 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        ::::::::            */
-/*   ft_printf.c                                        :+:    :+:            */
-/*                                                     +:+                    */
-/*   By: exam <marvin@codam.nl>                       +#+                     */
-/*                                                   +#+                      */
-/*   Created: 2020/01/07 13:19:38 by exam          #+#    #+#                 */
-/*   Updated: 2020/01/07 14:50:33 by exam          ########   odam.nl         */
-/*                                                                            */
-/* ************************************************************************** */
 
+#include <stdlib.h>
 #include <unistd.h>
+#include <stdio.h>
 #include <stdarg.h>
 
-typedef struct		s_flags
+typedef struct s_list
 {
 	int width;
-	int dot;
-	int pres;
-	int co;
-	va_list arg;
-}					t_flags;
+	int precision;
+	int has_precision;
+	int is_neg;
+	int count;
+	int len;
+	va_list ap;
+}		t_list;
 
-void	init(t_flags *f)
+void clear_struct(t_list *data)
 {
-	f->width =  0;
-	f->dot = 0;
-	f->pres = 0;
+	data->width = 0;
+	data->precision = 0;
+	data->has_precision = 0;
+	data->is_neg = 0;
+	data->len = 0;
 }
-
-void	ft_putchar(char c, t_flags *f)
+void ft_putchar(char c, t_list *data)
 {
 	write(1, &c, 1);
-	f->co = f->co + 1;
+	data->count += 1;
 }
-
-void	ft_putnbr(long num, t_flags *f)
-{
-	if (num > 9)
-	{
-		ft_putnbr((num / 10), f);
-		ft_putnbr((num % 10), f);
-		return ;
-	}
-	ft_putchar((num + 48), f);
-}
-
-void	ft_putnbr_hex(unsigned long num, t_flags *f)
+void print_s(char *str, t_list *data)
 {
 	int i;
 
-	i = 0;
-	if (num > 15)
-	{
-		ft_putnbr_hex((num / 16), f);
-		ft_putnbr_hex((num % 16), f);
-		return ;
-	}
-	if (num > 9)
-	{
-		while (num > 10)
-		{
-			i++;
-			num--;
-		}
-		ft_putchar(('a' + i), f);
-		return ;
-	}
-	ft_putchar((num + 48), f);
-}
 
-void	hex(t_flags *f)
-{
-	unsigned long num;
-	unsigned long savenum;
-	int i;
-
-	num = va_arg(f->arg, unsigned int);
-	i = 0;
-	savenum = num;
-	while (savenum >= 1)
-	{
-		savenum = savenum / 16;
-		i++;
-	}
-	while (f->width > i && f->width > f->pres)
-	{
-		ft_putchar(' ', f);
-		f->width--;
-	}
-	while (f->pres > i)
-	{
-		ft_putchar('0', f);
-		f->pres--;
-	}
-	if (f->pres == 0 && f->dot == 1 && num == 0)
-		return ;
-	ft_putnbr_hex(num, f);
-}
-
-void	digit(t_flags *f)
-{
-	long num;
-	long savenum;
-	int i;
-	int min;
-
-	min = 0;
-	num = va_arg(f->arg, int);
-	i = 0;
-	if (num < 0)
-	{
-		f->width--;
-		num = num * -1;
-		min = 1;
-	}
-	savenum = num;
-	while (savenum >= 1)
-	{
-		savenum = savenum / 10;
-		i++;
-	}
-	while (f->width > i && f->width > f->pres)
-	{
-		ft_putchar(' ', f);
-		f->width--;
-	}
-	if (min == 1)
-		ft_putchar('-', f);
-	while (f->pres > i)
-	{
-		ft_putchar('0', f);
-		f->pres--;
-	}
-	if (f->pres == 0 && f->dot == 1 && num == 0)
-		return ;
-	ft_putnbr(num, f);
-}
-
-void	string(t_flags *f)
-{
-	char *str;
-	int i;
-	int j;
-
-	i = 0;
-	j = 0;
-	str = va_arg(f->arg, char *);
-	if (!str)
+	if (str == NULL)
 		str = "(null)";
-	while (str[i])
+	i = 0;
+	while(str[i] != '\0')
 		i++;
-	if (f->pres < i && f->dot == 1)
-		i = f->pres;
-	while (f->width > i)
+	data->len = i;
+	i = 0;
+	if (data->has_precision && data->precision < data->len)
+		data->len = data->precision;
+	while (data->width > data->len)
 	{
-		ft_putchar(' ', f);
-		f->width--;
+		ft_putchar(' ', data);
+		data->width--;
 	}
-	while (i > 0)
+	while (data->len > 0)
 	{
-		ft_putchar(str[j], f);
-		j++;
-		i--;
+		ft_putchar(str[i], data);
+		i++;
+		data->len--;
 	}
+	
 }
 
-void	found_perc(const char **s, t_flags *f)
+void ft_putnbr(long n, t_list *data)
 {
-	while (**s >= '0' && **s <= '9')
+	if (n >= 10)
 	{
-		f->width = f->width * 10 + **s - 48;
-		(*s)++;
+		ft_putnbr(n / 10, data);
+		ft_putnbr(n % 10, data);
 	}
-	if (**s == '.')
+	else 
+		ft_putchar(n + 48, data);
+
+}
+void print_d(long n, t_list *data)
+{
+	long ncopy;
+
+	if (n < 0)
 	{
-		f->dot = 1;
-		(*s)++;
-		while (**s >= '0' && **s <= '9')
-		{
-			f->pres = f->pres * 10 + **s - 48;
-			(*s)++;
-		}
+		n = n * -1;
+		data->is_neg = 1;
+		data->width--;
 	}
-	if (**s == 'd')
-		digit(f);
-	if (**s == 'x')
-		hex(f);
-	if (**s == 's')
-		string(f);
-	if (**s != 0)
-		(*s)++;
+	ncopy = n;
+	while (ncopy > 0)
+	{
+		ncopy = ncopy / 10;
+		data->len++;
+	}
+	if (n == 0)
+		data->len = 1;
+	if (data->has_precision && data->precision > data->len)
+		data->width = data->width - (data->precision - data->len);
+	while (data->width > data->len)
+	{
+		ft_putchar(' ', data);
+		data->width--;
+	}
+	if (data->is_neg && data->precision >= data->len)
+		ft_putchar('-', data);
+	while (data->precision > data->len)
+	{
+		ft_putchar('0', data);
+		data->precision--;
+	}
+	if (data->is_neg && data->precision < data->len)
+		ft_putchar('-', data);
+	if (data->has_precision && data->precision == 0 && n == 0)
+	{
+		if (data->width > 0)
+			ft_putchar(' ', data);
+		return ;
+	}
+	ft_putnbr(n, data);
 }
 
-int		ft_printf(const char *s, ... )
+void ft_puthex(long n, t_list *data)
 {
-	t_flags f;
+	int i;
 
-	f.co = 0;
-	va_start(f.arg, s);
-	while (*s)
+	i = 0;
+	if (n >= 16)
 	{
-		if (*s == '%')
+		ft_puthex(n / 16, data);
+		ft_puthex(n % 16, data);
+	}
+	else if (n > 9)
+	{
+		while (n > 9)
 		{
-			init(&f);
-			s++;
-			found_perc(&s, &f);
+			n--;
+			i++;
 		}
-		else
+		ft_putchar(96 + i, data);
+	}
+	else
+		ft_putchar(n + 48, data);
+	
+}
+
+void print_x(long n, t_list *data)
+{
+	long ncopy;
+
+	ncopy = n;
+	while (ncopy > 0)
+	{
+		ncopy = ncopy / 16;
+		data->len++;
+	}
+	if (n == 0)
+		data->len = 1;
+	if (data->has_precision && data->precision > data->len)
+		data->width = data->width - (data->precision - data->len);
+	while (data->width > data->len)
+	{
+		ft_putchar(' ', data);
+		data->width--;
+	}
+	while (data->precision > data->len)
+	{
+		ft_putchar('0', data);
+		data->precision--;
+	}
+	if (data->has_precision && data->precision == 0 && n == 0)
+	{
+		if (data->width > 0)
+			ft_putchar(' ', data);
+		return ;
+	}
+	ft_puthex(n, data);
+
+}
+
+void look_for_width_and_flags(const char **str, t_list *data)
+{
+	while (**str >= '0' && **str <= '9')
+	{
+		data->width = data->width * 10 + (**str - 48);
+		(*str)++;
+	}
+	if (**str == '.')
+	{
+		data->has_precision = 1;
+		(*str)++;
+		while (**str >= '0' && **str <= '9')
 		{
-			ft_putchar(*s, &f);
-			s++;
+			data->precision = data->precision * 10 + (**str - 48);
+			(*str)++;
 		}
 	}
-	va_end(f.arg);
-	return (f.co);
+	if (**str == 's')
+		print_s(va_arg(data->ap, char*), data);
+	if (**str == 'd')
+		print_d(va_arg(data->ap, int), data);
+	if (**str == 'x')
+		print_x(va_arg(data->ap, unsigned int), data);
+	(*str)++;
+
+}
+
+int ft_printf(const char *str, ...)
+{
+	t_list data;
+
+	data.count = 0;
+	va_start(data.ap, str);
+	while (*str != '\0')
+	{
+		if (*str == '%')
+		{
+			str++;
+			clear_struct(&data);
+			look_for_width_and_flags(&str, &data);
+		}
+		if (*str != '%' && *str != '\0')
+		{
+			ft_putchar(str[0], &data);
+			str++;
+		}
+	}
+	va_end(data.ap);
+	return (data.count);
 }
