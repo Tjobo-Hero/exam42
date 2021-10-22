@@ -7,46 +7,52 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-typedef struct s_client
-{
+typedef struct s_client {
 	int fd;
 	int id;
 	struct s_client *next;
-
 } t_client;
 
-int sockfd, bufsize, clientCounter;
-fd_set readFD, writeFD, allFD;
-struct sockaddr_in servaddr; // copied
+int bufsize, clientCounter, sockfd;
+fd_set allFD, readFD, writeFD;
+struct sockaddr_in servaddr;
 
 t_client *clients = NULL;
+
 char message[1000000];
 
-void 	parseError(char *str) {
-	write(STDERR_FILENO, str, strlen(str));
+void	parseError(char *error) {
+	write(STDERR_FILENO, error, strlen(error));
 	exit(1);
 }
 
-void	setVariables(int listeningPort) 
-{
+void	initVar(int port) {
+	bufsize = 1000000;
 	clientCounter = 0;
 	sockfd = 0;
-	bufsize = 1000000;
-	bzero(&servaddr, sizeof(servaddr)); // copied
-	servaddr.sin_family = AF_INET; // copied
+	bzero(&servaddr, sizeof(servaddr));
+	servaddr.sin_family = AF_INET; 
 	servaddr.sin_addr.s_addr = htonl(2130706433); //127.0.0.1
-	servaddr.sin_port = htons(listeningPort); // copied, except port
-	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) // copied
+	servaddr.sin_port = htons(port);
+	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 		parseError("Fatal error\n");
 	FD_ZERO(&allFD);
 	FD_SET(sockfd, &allFD);
 }
 
-
-
-void	cleanError() {
+int maxfd() {
+	int ret = sockfd;
 	t_client *tmp = clients;
 	while (tmp) {
+		if (tmp->fd > ret)
+			ret = tmp->fd;
+		tmp = tmp->next;
+	}
+	return ret;
+}
+void	cleanError() {
+	t_client *tmp = clients;
+	while(tmp) {
 		t_client *del = tmp;
 		tmp = tmp->next;
 		close(del->fd);
@@ -56,23 +62,25 @@ void	cleanError() {
 	parseError("Fatal error\n");
 }
 
-int		maxfd() {
-	int ret = sockfd;
+void	sendMessage(char *message, int id)
+{
 	t_client *tmp = clients;
-	while(tmp) {
-		if (tmp->fd > ret)
-			ret = tmp->fd;
+	while (tmp) {
+		if (FD_ISSET(tmp->fd, &writeFD) && tmp->id != id)
+		{
+			printf("message:%s|\n", message);
+			if (send(tmp->fd, message, strlen(message), 0) < 0)
+				cleanError();
+		}
 		tmp = tmp->next;
 	}
-	return ret;
 }
 
-void	addClient(int newfd) {
-	t_client *tmp = clients;
+void	addNewClient(int newClientFD) {
 	t_client *newClient = malloc(sizeof(t_client));
 	if (!newClient)
 		cleanError();
-	newClient->fd = newfd;
+	newClient->fd = newClientFD;
 	newClient->id = clientCounter;
 	clientCounter++;
 	newClient->next = NULL;
@@ -81,33 +89,41 @@ void	addClient(int newfd) {
 		clients = newClient;
 	else
 	{
-		while (tmp->next)
+		t_client *tmp = clients;
+		while(tmp->next)
 			tmp = tmp->next;
 		tmp->next = newClient;
 	}
+	
 }
 
-void 	sendMessage(const char *message, int id) {
-	t_client *tmp = clients;
-	while (tmp) {
-		if (FD_ISSET(tmp->fd, &writeFD) && tmp->id != id)
-			if (send(tmp->fd, message, strlen(message), 0) < 0)
-				cleanError();
-		tmp = tmp->next;
-	}
+void	createNewClient() {
+	struct sockaddr_in cli;
+	bzero(&cli, sizeof(cli));
+	socklen_t len = sizeof(cli);
+	int newClientFD = accept(sockfd, (struct sockaddr *)&cli, &len);
+	if (!newClientFD)
+		cleanError();
+	addNewClient(newClientFD);
+
+	bzero(&message, sizeof(message));
+	sprintf(message, "server: client %d just arrived\n", clientCounter - 1);
+	sendMessage(message, -1);
 }
 
 void	deleteClient(t_client *client) {
 	FD_CLR(client->fd, &allFD);
 	close(client->fd);
-
 	t_client *tmp = clients;
-	if (tmp->id == client->id) {
+	if (tmp->id == client->id)
+	{
 		clients = tmp->next;
 		free(client);
 	}
-	else {
-		while (tmp) {
+	else
+	{
+		while (tmp)
+		{
 			if (tmp->next->fd == client->fd)
 			{
 				tmp->next = client->next;
@@ -117,6 +133,8 @@ void	deleteClient(t_client *client) {
 			tmp = tmp->next;
 		}
 	}
+	bzero(&message, sizeof(message));
+
 	sprintf(message, "server: client %d just left\n", client->id);
 	sendMessage(message, -1);
 }
@@ -126,17 +144,16 @@ void	createMessage(t_client *client) {
 	bzero(&clientMessage, sizeof(clientMessage));
 
 	sprintf(clientMessage, "client %d: ", client->id);
-	
+
 	char ret[bufsize];
 	bzero(&ret, sizeof(ret));
 
 	char buf[bufsize];
-
-	int i = 0;
+	size_t i = 0;
 	while (message[i]) {
 		bzero(&buf, sizeof(buf));
 		strcat(ret, clientMessage);
-		int j = 0;
+		size_t j = 0;
 		while (message[i] && message[i] != '\n')
 		{
 			buf[j] = message[i];
@@ -153,67 +170,50 @@ void	createMessage(t_client *client) {
 	sendMessage(ret, client->id);
 }
 
-void	client(t_client *client) {
-	
+void	handleClient(t_client *client) {
 	bzero(&message, sizeof(message));
 	if (recv(client->fd, message, bufsize, 0) <= 0)
 		deleteClient(client);
 	else
+	{
 		createMessage(client);
+	}
+	
 }
 
-void	createClient() {
-
-	struct sockaddr_in cli;
-	bzero(&cli, sizeof(cli));
-
-	socklen_t len = sizeof(cli);
-	int newfd = accept(sockfd, (struct sockaddr *)&cli, &len);
-	if (newfd < 0)
-		cleanError();
-	addClient(newfd);
-
-	bzero(&message, sizeof(message));
-	sprintf(message, "server: client %d just arrived\n", clientCounter - 1);
-
-	sendMessage(message, -1);
-}
-
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
 	if (argc != 2)
 		parseError("Wrong number of arguments\n");
-	setVariables(atoi(argv[1]));
-	if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0) // copied
+	initVar(atoi(argv[1]));
+	if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
 		parseError("Fatal error\n");
-	if (listen(sockfd, 250) != 0) // copied but changed 10 to 250
+	if (listen(sockfd, 250) != 0)
 		parseError("Fatal error\n");
-	// int option = 1;
-	// setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &option, 0);
+	int option = 1;
+	setsockopt(sockfd, SOL_SOCKET,  SO_REUSEADDR, &option, 0);
 	while (1) {
-		readFD = allFD;
 		writeFD = allFD;
+		readFD = allFD;
 		if (select(maxfd() + 1, &readFD, &writeFD, NULL, NULL) == -1)
 			cleanError();
 		if (FD_ISSET(sockfd, &readFD))
 		{
-			createClient();
+			createNewClient();
 			continue;
 		}
 		else
 		{
 			t_client *tmp = clients;
-			while (tmp){
-
+			while (tmp)
+			{
 				if (FD_ISSET(tmp->fd, &readFD))
 				{
-					client(tmp);
+					handleClient(tmp);
 					break;
 				}
 				tmp = tmp->next;
 			}
 		}
 	}
-
 	return 0;
 }
